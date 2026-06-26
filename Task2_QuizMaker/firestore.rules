@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// ============================================================
+// MARKWISE — FIRESTORE SECURITY RULES
+//
+// To apply: go to your Firebase Console → Firestore Database
+// → Rules tab → paste this entire file → Publish.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // USERS — anyone signed in can read profiles (needed to show
+    // "by <name>" on quiz cards); a user can only write their own.
+    match /users/{userId} {
+      allow read: if true;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // QUIZZES — readable by everyone (no login needed to browse/play).
+    // The creator can update any field on their own quiz. Any other
+    // signed-in user may only bump attemptCount (when they finish taking it).
+    match /quizzes/{quizId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.creatorId == request.auth.uid;
+      allow update: if request.auth != null && (
+                      resource.data.creatorId == request.auth.uid ||
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attemptCount'])
+                    );
+      allow delete: if request.auth != null
+                    && resource.data.creatorId == request.auth.uid;
+
+      // QUESTIONS subcollection — readable by everyone, writable only
+      // by the parent quiz's creator.
+      match /questions/{questionId} {
+        allow read: if true;
+        allow create, update, delete: if request.auth != null
+          && get(/databases/$(database)/documents/quizzes/$(quizId)).data.creatorId == request.auth.uid;
+      }
+    }
+
+    // ATTEMPTS — a user can create their own attempt, and read only
+    // their own attempts (keeps other people's scores private).
+    match /attempts/{attemptId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
